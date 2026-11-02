@@ -1,0 +1,65 @@
+# AETHER API — Cloudflare Worker configuration
+#
+# Deploy commands live in docs/DEPLOYMENT.md. This file contains NO secrets:
+# secrets are set with `npx wrangler secret put <NAME> --config worker/wrangler.toml`
+# (see worker/.dev.vars.example for local development).
+#
+# Placeholders that must be replaced before the first deploy (the values below are
+# syntactically valid so `wrangler dev --local` works out of the box, but they are
+# all-zero / default and are rejected for production by scripts/check-env.mjs):
+#   D1 database id     npx wrangler d1 create aether-db
+#   R2 bucket name     npx wrangler r2 bucket create aether-music
+#   KV namespace id    npx wrangler kv namespace create MUSIC_CACHE
+
+name = "aether-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-15"
+workers_dev = true
+
+# The API uses only Web-standard runtime APIs (fetch, crypto.subtle, streams).
+compatibility_flags = []
+
+[vars]
+# "production" enables stricter validation (HTTPS-only provider endpoints).
+AETHER_ENV = "production"
+# Comma separated browser origins. Set this to the AETHER web origin(s).
+ALLOWED_ORIGINS = "https://app.example.com"
+# auto = redirect to a presigned URL when possible, else proxy with byte ranges.
+STREAM_MODE = "auto"
+# Region recorded on new storage providers (R2 uses "auto").
+R2_DEFAULT_REGION = "auto"
+# Token lifetimes.
+ACCESS_TOKEN_TTL_SECONDS = "900"
+REFRESH_TOKEN_TTL_DAYS = "30"
+
+# --------------------------------------------------------------------------
+# D1 — the only source of truth for users, catalogue, uploads and audit.
+# --------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "aether-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "../database/migrations"
+
+# --------------------------------------------------------------------------
+# R2 — the primary audio bucket (binding mode: no credentials in the Worker).
+# Additional providers are registered at runtime through /api/admin/storage and
+# reference Worker secrets named R2_<REF>_ACCESS_KEY_ID / _SECRET_ACCESS_KEY.
+# --------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "MUSIC_BUCKET"
+bucket_name = "aether-music"
+
+# --------------------------------------------------------------------------
+# KV — used ONLY for the short-lived GET /api/config cache.
+# Audio never flows through KV. Remove this block to disable the cache.
+# --------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "MUSIC_CACHE"
+id = "00000000000000000000000000000000"
+
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = true

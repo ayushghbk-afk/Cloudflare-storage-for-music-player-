@@ -1,0 +1,56 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build output
+dist/
+build/
+web/dist/
+*.tsbuildinfo
+
+# cloudflare / wrangler local state
+.wrangler/
+.dev.vars
+.dev.vars.*
+worker/.dev.vars
+worker/.dev.vars.*
+!worker/.dev.vars.example
+
+# environment / secrets NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+.htpasswd
+
+# local databases created for offline testing
+*.sqlite
+*.sqlite3
+*.db
+!worker/wrangler.toml
+.data/
+
+# test + tooling caches
+coverage/
+.vitest/
+.vite/
+.cache/
+.turbo/
+.eslintcache
+
+# logs
+*.log
+npm-debug.log*
+yarn-error.log*
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

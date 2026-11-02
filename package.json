@@ -1,0 +1,55 @@
+{
+  "name": "aether-public-music-cloud",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "AETHER public music cloud: Cloudflare Workers + D1 + R2 backend for the AETHER music player.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "npm run dev:web",
+    "dev:web": "vite",
+    "dev:worker": "wrangler dev --config worker/wrangler.toml",
+    "build": "npm run build:web",
+    "build:web": "vite build",
+    "preview:web": "vite preview",
+    "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:validate": "node scripts/validate-migrations.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --config worker/wrangler.toml",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config worker/wrangler.toml",
+    "db:list": "node scripts/list-migrations.mjs",
+    "check:env": "node scripts/check-env.mjs",
+    "check:all": "npm run typecheck && npm run lint && npm run test && npm run db:validate && npm run build:web",
+    "deploy:worker": "wrangler deploy --config worker/wrangler.toml",
+    "deploy:web": "npm run build:web",
+    "cf:tail": "wrangler tail --config worker/wrangler.toml"
+  },
+  "dependencies": {
+    "hono": "^4.13.16",
+    "jose": "^6.2.15",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "aws4": "^1.13.2",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.156.1"
+  }
+}

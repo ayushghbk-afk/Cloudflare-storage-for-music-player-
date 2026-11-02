@@ -1,3 +1,138 @@
+# AETHER Cloud
+
+Cloud infrastructure for **AETHER**, the existing React/TypeScript music player with a native
+Android (Media3) client: audio in **Cloudflare R2**, catalogue in **D1**, one API on
+**Cloudflare Workers**, optional **KV** caching, **Turnstile** abuse protection, and GitHub as
+the source of truth.
+
+One library, whichever R2 location a file physically lives in. No second player: the existing
+web player and the existing Android playback engine keep working, and the API speaks the HTTP
+they already understand (JSON, MIME types, byte ranges).
+
+```
+existing AETHER clients ──▶ Worker API ──┬── D1 (catalogue, users, uploads, audit)
+                                         ├── R2 provider #1 (binding)
+                                         ├── R2 provider #2..n (S3 API + secrets)
+                                         └── KV (30 s cache for GET /api/config)
+```
+
+## Status
+
+| Area | State |
+| --- | --- |
+| Worker API (Hono + zod, Cloudflare runtime only) | implemented |
+| D1 schema (5 migrations) | implemented, validated |
+| R2 provider registry (binding + S3/SigV4 adapters) | implemented, unit-tested |
+| Uploads (presigned + proxied) with metadata/artwork extraction | implemented, integration-tested |
+| Streaming (byte ranges, signed URLs, redirect/proxy, fallback) | implemented, integration-tested |
+| Auth, RBAC, moderation, admin, audit | implemented, integration-tested |
+| Admin console (`web/`) | implemented, builds |
+| Tests | **241 passing** (`npm test`), no Cloudflare account required |
+| Live Cloudflare resources | **not created** — needs the owner's account (see `docs/SETUP.md`) |
+| Production deployment | **not performed** — gated manual workflow (see `docs/DEPLOYMENT.md`) |
+
+## Quick start
+
+```bash
+npm install
+npm run check:all            # typecheck + lint + 241 tests + migration validation + web build
+
+cp worker/.dev.vars.example worker/.dev.vars   # set JWT_SECRET (>= 32 chars) and ALLOWED_ORIGINS
+npm run db:migrate:local
+npm run dev:worker           # API      → http://127.0.0.1:8787
+npm run dev:web              # console  → http://localhost:5173  (proxies /api)
+```
+
+Then, once, create the primary storage provider (the API never invents one) — see
+`docs/SETUP.md` §4 for the console form and the equivalent `curl`.
+
+## Documentation
+
+| Document | Contents |
+| --- | --- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, request lifecycle, data model, storage abstraction, upload/streaming pipelines, caching, failure modes. |
+| [docs/SETUP.md](docs/SETUP.md) | Zero-credential local start, Cloudflare resource creation, secrets, first admin, first provider, troubleshooting. |
+| [docs/STORAGE.md](docs/STORAGE.md) | Provider model, auth modes, routing, capacity honesty, integrity, migration, adding a new provider kind, costs. |
+| [docs/API.md](docs/API.md) | Every endpoint with shapes, status codes, ranges/signed URLs and examples. |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Environments, migrations, deploy and rollback, CI gating, operations, capacity notes. |
+| [docs/SECURITY.md](docs/SECURITY.md) | Auth internals, RBAC, upload validation, streaming security, rate limits, known limitations. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) | Contribution rules, disclosure policy, change history. |
+
+## Repository layout
+
+```
+worker/            Cloudflare Worker (API) + wrangler.toml + .dev.vars.example
+  src/app.ts       Hono app: middleware, health, config, route mounting
+  src/auth/        register, login, refresh rotation, RBAC
+  src/catalog/     tracks, albums, artists, search, playlists
+  src/library/     favourites, history, "my uploads"
+  src/uploads/     init → bytes → complete, validation, metadata
+  src/metadata/    ID3, FLAC, MP4, Ogg/Opus, WAV parsers (no dependencies)
+  src/storage/     provider registry, R2 binding + S3 SigV4 adapters, health, integrity, migration
+  src/streaming/   byte ranges, signed URLs, authorization, artwork, redirect/proxy
+  src/admin/       storage, moderation, stats, users, settings, audit
+database/          migrations 0001…0005
+web/               React 19 admin console (Vite)
+tests/             unit + full-API integration tests (in-memory D1/R2/KV)
+scripts/           validate-migrations, list-migrations, check-env, storage-copy
+docs/              architecture, setup, storage, API, deployment, security
+```
+
+## API at a glance
+
+```
+GET    /api/health · /api/config
+POST   /api/auth/{register,login,refresh,logout}
+GET    /api/auth/me · PATCH /api/auth/me
+GET    /api/tracks · /api/tracks/:id · /api/tracks/:id/similar · /api/search
+GET    /api/albums · /api/albums/:id · /api/artists · /api/artists/:id
+GET    /api/stream/:id · HEAD /api/stream/:id · GET /api/stream/:id/url · GET /api/artwork/:id
+POST   /api/upload/init · PUT /api/upload/:jobId/file · POST /api/upload/complete
+GET    /api/upload/status/:jobId · DELETE /api/upload/:jobId
+GET    /api/library · /api/library/favorites · /api/library/history
+GET    /api/playlists · POST /api/playlists · /api/playlists/:id[/tracks]
+POST   /api/tracks/:id/report · POST /api/playback/errors
+GET    /api/admin/{stats,audit,users,settings,uploads,playback-errors}
+GET    /api/admin/tracks · POST /api/admin/tracks/:id/{approve,reject,remove}
+GET    /api/admin/reports · POST /api/admin/reports/:id/resolve
+GET    /api/admin/storage · POST /api/admin/storage/providers · PATCH|DELETE …/providers/:id
+GET    /api/admin/storage/health · POST /api/admin/storage/{health/:id/check,verify,migrate}
+```
+
+## Security posture (short version)
+
+* JWT access tokens + hashed, rotating refresh tokens with reuse detection; PBKDF2 passwords.
+* Roles re-read from D1 on every request; suspension takes effect immediately.
+* Uploads are private and pending until a moderator approves **and** rights are confirmed.
+* Provider credentials live only in Worker secrets, referenced by name; responses show which
+  secret names are missing, never values.
+* Streaming is authorised per request and prefers a 302 to a short-lived presigned URL, so the
+  Worker never buffers a whole file.
+* No secret is committed: `.env.example` and `worker/.dev.vars.example` hold placeholders only.
+
+Known limitations (no antivirus, no DRM, free-plan CPU budget, KV eventual consistency, console
+token storage) are listed in `docs/SECURITY.md` §10.
+
+## What still needs the owner
+
+1. Create the D1 database, R2 bucket and (optional) KV namespace; paste the ids into
+   `worker/wrangler.toml`.
+2. Set Worker secrets (`JWT_SECRET` required; Turnstile and `R2_<REF>_*` optional).
+3. Apply migrations to the remote D1 and deploy the Worker.
+4. Register the first storage provider and confirm its health shows `healthy`.
+5. Tag releases `v0.1.0 → … → v1.0.0` when satisfied (tags are not pushed by automation).
+
+No billing or credentialed Cloudflare action has been performed from this repository.
+
+---
+
+## Appendix — original AETHER specification (kept verbatim)
+
+The text below is the specification this implementation was built against. It is preserved
+unchanged for reference; where it and `docs/` differ, `docs/` describes what the code does.
+
+---
+
 PROJECT: AETHER PUBLIC MUSIC CLOUD
 
 You are the lead software architect, senior backend engineer, DevOps engineer, and security engineer for AETHER.
